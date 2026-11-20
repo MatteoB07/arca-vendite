@@ -1,5 +1,5 @@
 ﻿// Cache dell'app per l'uso offline. Cambia il numero quando pubblichi una nuova versione.
-const CACHE = 'arca-vendite-v6';
+const CACHE = 'arca-vendite-v7';
 const SHELL = ['./', 'index.html', 'styles.css', 'splash.js', 'app.js', 'manifest.webmanifest',
   'img/logo-arca.png', 'img/logo-nome.png', 'img/logo-zampe.png','icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 const FBV = '12.3.0';

@@ -5,7 +5,7 @@
    Nel codice non c'è nessun dato: l'accesso è riservato agli account Google autorizzati (regole di sicurezza in Firebase).
    Al vecchio indirizzo (GitHub Pages) l'app funziona ancora in modalità "solo su questo telefono", per recuperare i dati. */
 
-const VERSIONE = '3.2';
+const VERSIONE = '3.3';
 const CASSA_A = 'Annalisa';           // a chi si consegnano i soldi raccolti (presidente dell'associazione)
 const KEY = 'arca-vendite-2027';      // nome storico della memoria: non cambiarlo, altrimenti si perdono i dati
 const KEY_UI = 'arca-vendite-2027-ui';
@@ -134,8 +134,10 @@ const tutteRighe = () => S.campagne.flatMap(c => c.records);
 
 /* ---------- Calcoli ---------- */
 const prezzo = id => num(prod(id).prezzo);
+/* Conto vendita: i pezzi affidati (meno i resi) contano come venduti; consegne e incassi li gestisci tu */
+const pezzi = r => r.tipo === 'conto' ? Math.max(r.qta - (r.resi || 0), 0) : r.qta;
 function importo(r) {
-  if (r.tipo === 'conto') return (r.venduti || 0) * prezzo(r.prodotto);
+  if (r.tipo === 'conto') return pezzi(r) * prezzo(r.prodotto);
   return hasNum(r.importo) ? num(r.importo) : r.qta * prezzo(r.prodotto);
 }
 const incassato = r => r.tipo === 'conto' ? num(r.versato) : (r.pagato ? importo(r) : 0);
@@ -159,13 +161,14 @@ function cassa(c) {
 }
 
 function stats(list) {
-  const s = { pren: 0, cons: 0, dacons: 0, inc: 0, dainc: 0, nInc: 0, cvAff: 0, cvVend: 0, cvResi: 0, cvMano: 0 };
+  const s = { pren: 0, cons: 0, dacons: 0, inc: 0, dainc: 0, nInc: 0, cvAff: 0, cvVend: 0, cvResi: 0, cvMano: 0, cvPz: 0 };
   for (const r of list) {
     s.inc += incassato(r);
     const d = daIncassare(r); s.dainc += d; if (d > 0) s.nInc++;
-    if (r.tipo === 'conto') { s.cvAff += r.qta; s.cvVend += r.venduti || 0; s.cvResi += r.resi || 0; s.cvMano += inMano(r); }
-    else { s.pren += r.qta; if (r.consegnato) s.cons += r.qta; else s.dacons += r.qta; }
+    if (r.tipo === 'conto') { s.cvAff += r.qta; s.cvVend += r.venduti || 0; s.cvResi += r.resi || 0; s.cvMano += inMano(r); s.cvPz += pezzi(r); }
+    const q = pezzi(r); s.pren += q; if (r.consegnato) s.cons += q; else s.dacons += q;
   }
+  s.tot = s.inc + s.dainc;
   return s;
 }
 
@@ -271,7 +274,7 @@ function vHome() {
   const all = c.records.filter(r => matchG(r, g));
   const s = stats(all);
   const pc = s.pren ? Math.round(s.cons / s.pren * 100) : 0;
-  const totE = s.inc + s.dainc, pe = totE ? Math.round(s.inc / totE * 100) : 0;
+  const totE = s.tot, pe = totE ? Math.round(s.inc / totE * 100) : 0;
   const tile = (lbl, n, hint, stato, alert) =>
     `<button class="tile ${alert ? 'alert' : ''}" data-act="go" data-stato="${stato}" data-g="${esc(g)}"><span class="lbl">${lbl}</span><span class="num">${n}</span><span class="hint">${hint}</span></button>`;
   return `${bannerChiusa()}${backupBanner()}
@@ -281,10 +284,11 @@ function vHome() {
       <div class="big h">${eur(s.inc)}</div>
       <div class="bar"><i style="width:${pe}%"></i></div>
       <div class="sub">${s.dainc ? `<b>${eur(s.dainc)}</b> ancora da incassare` : 'Tutto incassato'}</div>
+      <div class="sub">Totale venduto <b>${eur(totE)}</b> · ${s.pren} ${s.pren === 1 ? 'pezzo' : 'pezzi'}${s.cvPz ? ' (conto vendita incluso)' : ''}</div>
     </div>
     <div class="tiles">
-      ${tile('Prenotati', s.pren, 'pezzi venduti', 'tutti')}
-      ${tile('Consegnati', s.cons, `${pc}% dei prenotati`, 'tutti')}
+      ${tile('Venduti', s.pren, s.cvPz ? `di cui ${s.cvPz} in conto vendita` : 'pezzi', 'tutti')}
+      ${tile('Consegnati', s.cons, `${pc}% dei venduti`, 'tutti')}
       ${tile('Da consegnare', s.dacons, 'pezzi', 'daCons', s.dacons > 0)}
       ${tile('Da incassare', eur(s.dainc), `${s.nInc} ${s.nInc === 1 ? 'riga' : 'righe'}`, 'daInc', s.dainc > 0)}
     </div></div>
@@ -381,8 +385,8 @@ function filtrati() {
 function listaHTML() {
   const L = filtrati();
   if (!L.length) return `<div class="empty">Nessuna riga con questi filtri.</div>`;
-  const pezzi = L.reduce((a, r) => a + r.qta, 0), dainc = L.reduce((a, r) => a + daIncassare(r), 0);
-  return `<div class="sum">${L.length} ${L.length === 1 ? 'riga' : 'righe'} · ${pezzi} pezzi${dainc ? ' · da incassare ' + eur(dainc) : ''}</div><div class="grid">${L.map(cardR).join('')}</div>`;
+  const nPz = L.reduce((a, r) => a + pezzi(r), 0), dainc = L.reduce((a, r) => a + daIncassare(r), 0);
+  return `<div class="sum">${L.length} ${L.length === 1 ? 'riga' : 'righe'} · ${nPz} pezzi${dainc ? ' · da incassare ' + eur(dainc) : ''}</div><div class="grid">${L.map(cardR).join('')}</div>`;
 }
 function cardR(r) {
   const cv = r.tipo === 'conto';
@@ -399,7 +403,7 @@ function cardR(r) {
   else if (r.spedizione) cons = r.consegnato ? `✓ Spedito ${dm(r.dataConsegna)}` : 'Da spedire';
   else cons = r.consegnato ? `✓ Consegnato ${dm(r.dataConsegna)}${r.consegnatoA && r.consegnatoA !== r.acquirente ? ' a ' + esc(r.consegnatoA) : ''}` : 'Da consegnare';
   let pag, pagOk;
-  if (cv) { const d = daIncassare(r); pagOk = d === 0 && (r.venduti || 0) > 0; pag = `In mano ${inMano(r)} · venduti ${r.venduti || 0}${d ? ' · da versare ' + eur(d) : (r.venduti ? ' · saldato' : '')}`; }
+  if (cv) { const d = daIncassare(r); pagOk = d === 0 && importo(r) > 0; pag = `In mano ${inMano(r)} · venduti ${r.venduti || 0}${d ? ' · da versare ' + eur(d) : (importo(r) ? ' · saldato' : '')}`; }
   else { pagOk = r.pagato; pag = r.pagato ? `✓ Pagato ${dm(r.dataPagamento)}${r.metodo ? ' · ' + METODI[r.metodo] : ''}` : 'Da incassare'; }
   const amt = cv ? (num(r.versato) ? eur(r.versato) : '') : eur(importo(r));
   return `<div class="rec" data-act="edit" data-id="${r.id}" role="button" tabindex="0">
@@ -417,7 +421,7 @@ function vSellers() {
   for (const r of R()) {
     const k = r.venditore || '(non indicato)';
     const o = m.get(k) || { pz: 0, dacons: 0, inc: 0, dainc: 0, mano: 0 };
-    o.pz += r.tipo === 'conto' ? (r.venduti || 0) : r.qta;
+    o.pz += pezzi(r);
     if (r.tipo !== 'conto' && !r.consegnato) o.dacons += r.qta;
     o.inc += incassato(r); o.dainc += daIncassare(r); o.mano += inMano(r);
     m.set(k, o);
@@ -438,12 +442,12 @@ function vCamps() {
   const L = [...S.campagne].sort((a, b) => (a.stato === b.stato ? 0 : a.stato === 'aperta' ? -1 : 1) || String(b.creata || '').localeCompare(String(a.creata || '')));
   const card = c => inCamp(c, () => {
     const s = stats(c.records), cur = c.id === S.attiva, k = cassa(c);
-    const pezzi = c.records.reduce((a, r) => a + (r.tipo === 'conto' ? (r.venduti || 0) : r.qta), 0);
+    const nPz = c.records.reduce((a, r) => a + pezzi(r), 0);
     return `<div class="card camp ${cur ? 'cur' : ''}">
       <div class="camp-top"><b class="h">${esc(c.nome).toUpperCase()}</b>
         ${cur ? '<span class="badge ok">In uso</span>' : ''}<span class="badge ${c.stato === 'chiusa' ? 'closed' : 'cv'}">${c.stato === 'chiusa' ? 'Chiusa' : 'Aperta'}</span></div>
       <p class="muted">${esc(c.prodotti.filter(p => !p.gen).map(p => p.nome).join(' · '))}</p>
-      <p class="muted">${c.records.length} ${c.records.length === 1 ? 'riga' : 'righe'} · ${pezzi} ${pezzi === 1 ? 'pezzo venduto' : 'pezzi venduti'} · incassato <b>${eur(s.inc)}</b>${s.dainc ? ` · da incassare <b class="due">${eur(s.dainc)}</b>` : ''}${k.resto > 0 ? ` · da dare ad ${CASSA_A} <b class="due">${eur(k.resto)}</b>` : ''}</p>
+      <p class="muted">${c.records.length} ${c.records.length === 1 ? 'riga' : 'righe'} · ${nPz} ${nPz === 1 ? 'pezzo venduto' : 'pezzi venduti'} per <b>${eur(s.tot)}</b> · incassato <b>${eur(s.inc)}</b>${s.dainc ? ` · da incassare <b class="due">${eur(s.dainc)}</b>` : ''}${k.resto > 0 ? ` · da dare ad ${CASSA_A} <b class="due">${eur(k.resto)}</b>` : ''}</p>
       <div class="btns">
         ${cur ? '' : `<button class="btn small primary" data-act="cUse" data-id="${c.id}">Apri</button>`}
         <button class="btn small" data-act="cEdit" data-id="${c.id}">Prodotti e prezzi</button>
@@ -481,7 +485,7 @@ function vMore() {
       <li><b>Soldi ad ${CASSA_A}</b> (nel Riepilogo): somma i pagamenti in contanti o «altro» e i soldi versati dai conti vendita; i bonifici restano fuori perché vanno direttamente all'associazione. Quando le consegni dei soldi, tocca «+ Segna soldi dati ad ${CASSA_A}».</li>
       <li><b>+ Nuova</b>: segna una vendita o un conto vendita nella campagna aperta.</li>
       <li>Nell'<b>Elenco</b> tocca il bollino arancione «Da consegnare» o «Da incassare» per segnarlo fatto con la data di oggi. Tocca la riga per modificarla.</li>
-      <li><b>Conto vendita</b>: segna quanti pezzi affidi al venditore; poi aggiorna venduti, resi e soldi versati.</li>
+      <li><b>Conto vendita</b>: segna quanti pezzi affidi al venditore; contano subito come venduti (meno gli eventuali resi); poi aggiorna resi e soldi versati.</li>
       <li><b>Chi consegna al venditore</b> e <b>venditore</b> possono essere la stessa persona.</li>
       <li>I nomi già usati compaiono come suggerimento mentre scrivi: sceglili per non creare doppioni.</li></ul></div>
     ${!CLOUD || FB.admin ? `<div class="card"><div class="ct h">ZONA PERICOLOSA</div>
@@ -672,7 +676,7 @@ function renderForm(first) {
 }
 function updateCalc() {
   const c = $('#calc'); if (!c || !F) return;
-  const d = Math.max((F.venduti || 0) * prezzo(F.prodotto) - num(F.versato), 0);
+  const d = Math.max(importo(F) - num(F.versato), 0);
   const mano = F.qta - (F.venduti || 0) - (F.resi || 0);
   c.innerHTML = mano < 0 ? '⚠︎ Venduti + resi superano i pezzi affidati' : `Ancora in mano: ${mano} · Da versare: ${eur(d)}`;
 }
