@@ -1,13 +1,13 @@
 ﻿{
   "name": "Arca Vendite",
   "short_name": "Arca Vendite",
-  "description": "Vendite solidali (calendari, panettoni, uova di Pasqua…) â€“ L'Arca di Annalisa O.D.V.",
+  "description": "Vendite solidali (calendari, panettoni, uova di Pasqua…) – L'Arca di Annalisa O.D.V.",
   "lang": "it",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
-  "background_color": "#f7f8f6",
+  "orientation": "any",
+  "background_color": "#ffffff",
   "theme_color": "#708f6d",
   "icons": [
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },

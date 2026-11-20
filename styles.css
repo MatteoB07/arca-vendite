@@ -169,6 +169,10 @@ nav.tabs .plus svg{width:28px;height:28px}
 .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .badge.closed{background:#e9e9e7;color:#555;padding:5px 9px;font-size:12px}
 .banner.closed{background:var(--nebbia);color:var(--antracite)}
+header.top .sync{position:absolute;top:calc(var(--safe-t) + 16px);right:14px;border:0;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:700;background:rgba(255,255,255,.2);color:#fff;z-index:1}
+header.top .sync.wait{background:rgba(255,255,255,.35)}
+header.top .sync.off{background:var(--warn-bg);color:var(--warn)}
+.errbox{background:#fbe7e5;color:var(--danger);border-radius:10px;padding:10px 12px;font-size:14px;font-weight:600}
 .due{color:var(--warn)}
 .cassa{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:2px 0 8px}
 .cassa > div{background:var(--nebbia);border-radius:12px;padding:10px;display:flex;flex-direction:column;justify-content:space-between;gap:6px}
@@ -181,3 +185,67 @@ nav.tabs .plus svg{width:28px;height:28px}
 .pe:first-child{border-top:0}
 .pe .f > span small{font-weight:500;color:#6d6d6b}
 .pe .btn.small{margin-top:4px}
+
+/* Schermata di benvenuto (logo animato all'apertura) */
+.splash{position:fixed;inset:0;z-index:200;background:#fff;display:grid;place-items:center;transition:opacity .32s ease}
+.splash.via{opacity:0;pointer-events:none}
+.s-logo{position:relative;width:min(58vw,300px);aspect-ratio:571/600}
+.s-logo img{position:absolute;inset:0;width:100%;height:100%;opacity:0}
+.splash.pronto .s-arca,.splash.pronto .s-nome{opacity:1}
+
+/* ---------- Schermi grandi: tablet, iPad in orizzontale, computer ---------- */
+nav.tabs .brand{display:none}
+@media (hover:hover){
+  .rec,.tile,.rowbtn,.chip,.btn,nav.tabs button{transition:box-shadow .15s,background .15s}
+  .rec:hover,.tile:hover{box-shadow:0 4px 14px rgba(29,29,27,.12)}
+  .rowbtn:hover{background:var(--carta)}
+}
+
+/* Da 700px (tablet in verticale): più spazio, schede su due colonne, moduli al centro */
+@media (min-width:700px){
+  header.top{padding-left:28px;padding-right:28px}
+  main{max-width:1040px;padding:6px 24px calc(100px + var(--safe-b))}
+  .chips{margin:0;padding:4px 0 6px;flex-wrap:wrap;overflow:visible}
+  .tiles{grid-template-columns:repeat(4,1fr)}
+  .cols{columns:2;column-gap:16px;margin-top:12px}
+  .cols > *{break-inside:avoid;-webkit-column-break-inside:avoid;margin:0 0 16px;display:block}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px;align-items:start;margin:8px 0}
+  .grid > .rec,.grid > .card{margin:0}
+  .btn.cnew{display:inline-block;width:auto;padding:12px 22px}
+  .overlay{align-items:center;padding:24px}
+  .sheet{border-radius:20px;max-height:calc(100vh - 48px)}
+  .choice{border-radius:20px;max-width:440px}
+  #toast{max-width:460px}
+}
+
+/* Da 1000px (iPad in orizzontale, computer): menu laterale fisso a sinistra */
+@media (min-width:1000px){
+  :root{--side:232px}
+  body.nav{padding-left:var(--side)}
+  main{max-width:1240px}
+  header.top{padding:28px max(36px, calc((100% - 1192px) / 2 + 24px)) 42px}
+  header.top h1{font-size:40px}
+  header.top .sync{top:20px;right:24px}
+  main{max-width:1240px;padding:8px 36px 48px}
+  nav.tabs{top:0;right:auto;width:var(--side);display:flex;flex-direction:column;gap:4px;padding:24px 14px;border-top:0;border-right:1px solid var(--line)}
+  nav.tabs .brand{display:block;font-size:28px;line-height:.95;color:var(--scuro);padding:0 10px 22px}
+  nav.tabs .brand small{display:block;font-family:Montserrat;font-size:12px;font-weight:600;color:var(--antracite);margin-top:6px;letter-spacing:0}
+  nav.tabs button{flex-direction:row;justify-content:flex-start;gap:12px;font-size:15px;padding:10px 12px;min-height:44px;border-radius:12px;text-align:left}
+  nav.tabs button.on{background:var(--ok-bg)}
+  nav.tabs button[data-act="new"]{order:-1;background:var(--scuro);color:#fff;margin-bottom:14px}
+  nav.tabs .brand{order:-2}
+  nav.tabs button[data-act="new"] .plus{width:auto;height:auto;margin:0;background:none;box-shadow:none}
+  nav.tabs button[data-act="new"] .plus svg{width:22px;height:22px}
+  .dash{display:grid;grid-template-columns:minmax(300px,1fr) 2fr;gap:16px;margin:12px 0}
+  .dash > .card,.dash > .tiles{margin:0}
+  .dash .hero{display:flex;flex-direction:column;justify-content:center}
+  .dash .hero .big{font-size:56px}
+  .dash .tiles{grid-template-columns:1fr 1fr}
+  .tile{min-height:104px}
+  #toast{bottom:24px}
+  body.nav #toast{left:calc(var(--side) + 16px)}
+}
+@media (min-width:1400px){
+  .cols{columns:3}
+  .dash .tiles{grid-template-columns:repeat(4,1fr)}
+}

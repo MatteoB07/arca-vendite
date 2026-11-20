@@ -1,12 +1,27 @@
 'use strict';
 /* L'Arca di Annalisa – Arca Vendite.
    Ogni vendita (Natale, Pasqua, …) è una "campagna" con i suoi prodotti, prezzi, magazzino e righe.
-   I dati restano SOLO su questo dispositivo (localStorage): nessun server, nessun dato nel codice. */
+   I dati stanno nel database online (Firebase Firestore) e in una copia sul dispositivo, che permette di lavorare offline.
+   Nel codice non c'è nessun dato: l'accesso è riservato agli account Google autorizzati (regole di sicurezza in Firebase).
+   Al vecchio indirizzo (GitHub Pages) l'app funziona ancora in modalità "solo su questo telefono", per recuperare i dati. */
 
-const VERSIONE = '2.1';
+const VERSIONE = '3.2';
 const CASSA_A = 'Annalisa';           // a chi si consegnano i soldi raccolti (presidente dell'associazione)
 const KEY = 'arca-vendite-2027';      // nome storico della memoria: non cambiarlo, altrimenti si perdono i dati
 const KEY_UI = 'arca-vendite-2027-ui';
+const KEY_LOC = 'arca-vendite-cloud-locale';   // impostazioni di questo dispositivo (PIN, ultimo backup)
+const NUOVO_URL = 'https://arca-vendite.firebaseapp.com/';
+const VECCHIO = /github\.io$/.test(location.hostname);
+const CLOUD = !VECCHIO && typeof firebase !== 'undefined' && location.protocol !== 'file:';
+/* Configurazione pubblica del progetto Firebase: non è un segreto, la protezione sta nelle regole di accesso */
+const FBCONF = {
+  apiKey: 'AIzaSyAf5oKyy0Mctm1vZmEeU97KmFv3Y6Ib0fs',
+  authDomain: 'arca-vendite.firebaseapp.com',
+  projectId: 'arca-vendite',
+  storageBucket: 'arca-vendite.firebasestorage.app',
+  messagingSenderId: '159424388321',
+  appId: '1:159424388321:web:f34c9401e5c4cc360e2ba0'
+};
 
 const METODI = { contanti: 'Contanti', bonifico: 'Bonifico', altro: 'Altro' };
 const DEF = { v: 2, settings: { pin: null }, campagne: [], attiva: null, lastBackup: null, lastChange: null };
@@ -29,8 +44,8 @@ const hasNum = v => v !== null && v !== undefined && v !== '';
 const slug = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
 /* ---------- Dati ---------- */
-let S = load();
 let UIp = {}; try { UIp = JSON.parse(localStorage.getItem(KEY_UI) || '{}') || {}; } catch (e) { UIp = {}; }
+let S = CLOUD ? loadCloud() : load();
 const UI = { view: 'home', homeG: 'tutti', q: '', stato: 'tutti', g: 'tutti', venditore: null, locked: !!S.settings.pin };
 let F = null;          // riga in modifica
 let FC = null;         // campagna in modifica
@@ -43,6 +58,17 @@ function load() {
     if (d && (Array.isArray(d.campagne) || Array.isArray(d.records))) return fix(d);
   } catch (e) { console.error(e); }
   return clone(DEF);
+}
+function loadCloud() {
+  let l = {}; try { l = JSON.parse(localStorage.getItem(KEY_LOC) || '{}') || {}; } catch (e) { l = {}; }
+  return { v: 2, settings: { pin: l.pin || null }, campagne: [], attiva: UIp.attiva || null, lastBackup: l.lastBackup || null, lastChange: null };
+}
+/* Salva su questo dispositivo: tutto (modalità locale) o solo PIN e data dell'ultimo backup (modalità online) */
+function persistLocal() {
+  try {
+    if (CLOUD) localStorage.setItem(KEY_LOC, JSON.stringify({ pin: S.settings.pin, lastBackup: S.lastBackup }));
+    else localStorage.setItem(KEY, JSON.stringify(S));
+  } catch (e) { }
 }
 /* Converte il formato della versione 1 (solo calendari e panettoni) in una campagna "Natale 2026" */
 function migra(d) {
@@ -89,6 +115,7 @@ function fix(d) {
 }
 function save() {
   S.lastChange = new Date().toISOString();
+  if (CLOUD) { persistLocal(); syncUp(); return; }
   try { localStorage.setItem(KEY, JSON.stringify(S)); }
   catch (e) { alert('Attenzione: non riesco a salvare (' + e.message + '). Fai subito un backup.'); }
 }
@@ -178,9 +205,16 @@ const TITOLI = {
 };
 
 function render() {
+  document.body.classList.remove('nav');
   if (UI.locked) { renderLock(); return; }
+  if (CLOUD && (FB.stato !== 'ok' || FB.pronti < 3)) {
+    app.innerHTML = `<header class="top"><h1 class="h">ARCA VENDITE</h1><p>L'Arca di Annalisa</p></header><main>${vAccesso()}</main>`;
+    return;
+  }
+  const sy = CLOUD ? `<button class="sync" id="sync" data-act="syncInfo"></button>` : '';
   if (!C()) {
-    app.innerHTML = `<header class="top"><h1 class="h">ARCA VENDITE</h1><p>L'Arca di Annalisa</p></header><main>${vWelcome()}</main>`;
+    app.innerHTML = `<header class="top">${sy}<h1 class="h">ARCA VENDITE</h1><p>L'Arca di Annalisa</p></header><main>${vWelcome()}</main>`;
+    statoSync();
     return;
   }
   const c = C();
@@ -189,7 +223,9 @@ function render() {
     ? `<p>Ogni vendita (Natale, Pasqua…) ha i suoi conti</p>`
     : `<button class="camp-pill" data-act="view" data-v="camps">${UI.view === 'home' ? 'Cambia campagna' : esc(c.nome)}${c.stato === 'chiusa' ? ' · chiusa' : ''} ▾</button>`;
   const body = { home: vHome, list: vList, sellers: vSellers, more: vMore, camps: vCamps }[UI.view]();
-  app.innerHTML = `<header class="top"><h1 class="h">${t}</h1>${sub}</header><main>${body}</main>${tabs()}`;
+  app.innerHTML = `<header class="top">${sy}<h1 class="h">${t}</h1>${sub}</header><main>${body}</main>${tabs()}`;
+  document.body.classList.add('nav');
+  statoSync();
 }
 
 const ICO = {
@@ -201,7 +237,7 @@ const ICO = {
 };
 function tabs() {
   const b = (v, lbl) => `<button class="${UI.view === v ? 'on' : ''}" data-act="view" data-v="${v}" aria-label="${lbl}">${ICO[v]}<span>${lbl}</span></button>`;
-  return `<nav class="tabs">${b('home', 'Riepilogo')}${b('list', 'Elenco')}
+  return `<nav class="tabs"><div class="brand h">ARCA<br>VENDITE<small>L'Arca di Annalisa</small></div>${b('home', 'Riepilogo')}${b('list', 'Elenco')}
     <button data-act="new" aria-label="Nuova riga"><span class="plus">${ICO.plus}</span><span>Nuova</span></button>
     ${b('sellers', 'Venditori')}${b('more', 'Altro')}</nav>`;
 }
@@ -210,7 +246,7 @@ const seg = (key, opts, cur, act = 'seg') => opts.map(([v, l]) => `<button class
 /* ---------- Primo avvio ---------- */
 function vWelcome() {
   return `<div class="card"><div class="ct h">BENVENUTA!</div>
-      <p class="muted">Se hai ricevuto un file di backup (per esempio con i dati della vendita di Natale), importalo. Altrimenti crea la prima campagna di vendita.</p>
+      <p class="muted">${CLOUD ? `Il database online è ancora vuoto. Se hai già segnato delle vendite con l'app al vecchio indirizzo (matteob07.github.io), aprila lì, tocca <b>Altro → Fai il backup</b> e poi importa qui quel file: i dati andranno online, visibili da tutti i dispositivi. Altrimenti crea la prima campagna di vendita.` : 'Se hai ricevuto un file di backup (per esempio con i dati della vendita di Natale), importalo. Altrimenti crea la prima campagna di vendita.'}</p>
       <label class="btn primary block" for="imp">Importa backup</label>
       <input id="imp" type="file" accept=".json,application/json" hidden>
       <button class="btn block" data-act="cNew">Crea una campagna</button></div>`;
@@ -240,7 +276,7 @@ function vHome() {
     `<button class="tile ${alert ? 'alert' : ''}" data-act="go" data-stato="${stato}" data-g="${esc(g)}"><span class="lbl">${lbl}</span><span class="num">${n}</span><span class="hint">${hint}</span></button>`;
   return `${bannerChiusa()}${backupBanner()}
     ${gs.length > 1 ? `<div class="seg">${seg('homeG', [['tutti', 'Tutto'], ...gs.map(x => [x, x])], g)}</div>` : ''}
-    <div class="card hero">
+    <div class="dash"><div class="card hero">
       <div class="lbl">Incassato</div>
       <div class="big h">${eur(s.inc)}</div>
       <div class="bar"><i style="width:${pe}%"></i></div>
@@ -251,10 +287,10 @@ function vHome() {
       ${tile('Consegnati', s.cons, `${pc}% dei prenotati`, 'tutti')}
       ${tile('Da consegnare', s.dacons, 'pezzi', 'daCons', s.dacons > 0)}
       ${tile('Da incassare', eur(s.dainc), `${s.nInc} ${s.nInc === 1 ? 'riga' : 'righe'}`, 'daInc', s.dainc > 0)}
-    </div>
-    ${g === 'tutti' ? cassaCard() : ''}
+    </div></div>
+    <div class="cols">${g === 'tutti' ? cassaCard() : ''}
     ${magazzino()}
-    ${contoCard(all)}`;
+    ${contoCard(all)}</div>`;
 }
 
 function cassaCard() {
@@ -313,7 +349,8 @@ function contoCard(all) {
   return `<div class="card"><div class="ct h">CONTO VENDITA <small>affidati ${s.cvAff} · venduti ${s.cvVend} · resi ${s.cvResi}</small></div>${rows}</div>`;
 }
 function backupBanner() {
-  if (!tutteRighe().length) return '';
+  if (VECCHIO) return `<div class="banner"><span><b>L'app ha un nuovo indirizzo</b> con il database online condiviso. Fai il backup qui, poi apri <b>arca-vendite.firebaseapp.com</b> e importalo lì.</span><button class="btn small primary" data-act="backup">Backup</button></div>`;
+  if (CLOUD || !tutteRighe().length) return '';   // online i dati sono già al sicuro
   const last = S.lastBackup ? new Date(S.lastBackup) : null;
   const giorni = last ? Math.floor((Date.now() - last) / 86400000) : null;
   const cambiato = !last || (S.lastChange && S.lastChange > S.lastBackup);
@@ -345,7 +382,7 @@ function listaHTML() {
   const L = filtrati();
   if (!L.length) return `<div class="empty">Nessuna riga con questi filtri.</div>`;
   const pezzi = L.reduce((a, r) => a + r.qta, 0), dainc = L.reduce((a, r) => a + daIncassare(r), 0);
-  return `<div class="sum">${L.length} ${L.length === 1 ? 'riga' : 'righe'} · ${pezzi} pezzi${dainc ? ' · da incassare ' + eur(dainc) : ''}</div>` + L.map(cardR).join('');
+  return `<div class="sum">${L.length} ${L.length === 1 ? 'riga' : 'righe'} · ${pezzi} pezzi${dainc ? ' · da incassare ' + eur(dainc) : ''}</div><div class="grid">${L.map(cardR).join('')}</div>`;
 }
 function cardR(r) {
   const cv = r.tipo === 'conto';
@@ -392,8 +429,8 @@ function vSellers() {
      <span class="r">incassato <b>${eur(o.inc)}</b><br>${o.dainc ? `da incassare <b class="due">${eur(o.dainc)}</b>` : ''}</span></button>`).join('');
   const frows = [...f.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) =>
     `<div class="rowbtn" style="cursor:default"><span>${esc(k)}</span><span class="r"><b>${n}</b> pezzi</span></div>`).join('');
-  return `<div class="card"><div class="ct h">VENDITORI <small>tocca per vedere le righe</small></div>${rows}</div>
-    <div class="card"><div class="ct h">HANNO CONSEGNATO AI VENDITORI</div>${frows}</div>`;
+  return `<div class="cols"><div class="card"><div class="ct h">VENDITORI <small>tocca per vedere le righe</small></div>${rows}</div>
+    <div class="card"><div class="ct h">HANNO CONSEGNATO AI VENDITORI</div>${frows}</div></div>`;
 }
 
 /* ---------- Campagne ---------- */
@@ -414,8 +451,8 @@ function vCamps() {
         <button class="btn small danger" data-act="cDel" data-id="${c.id}">Elimina</button>
       </div></div>`;
   });
-  return `<button class="btn primary block" data-act="cNew">+ Nuova campagna</button>
-    ${L.map(card).join('')}
+  return `<button class="btn primary block cnew" data-act="cNew">+ Nuova campagna</button>
+    <div class="grid">${L.map(card).join('')}</div>
     <p class="muted">Ogni campagna ha prodotti, prezzi, magazzino e righe separati. Quando una vendita è finita, <b>chiudila</b>: resta consultabile ma non si modifica più per sbaglio. I nomi delle persone restano suggeriti in tutte le campagne.</p>`;
 }
 
@@ -424,13 +461,13 @@ function vMore() {
   const c = C();
   const prodRows = c.prodotti.filter(p => !p.gen).map(p =>
     `<div class="rowbtn" style="cursor:default"><span>${esc(p.nome)}</span><span class="r"><b>${eur(p.prezzo)}</b><br>${hasNum(p.stock) ? `magazzino ${p.stock}` : 'magazzino non indicato'}</span></div>`).join('');
-  return `<div class="card"><div class="ct h">CAMPAGNA <small>${esc(c.nome)}${c.stato === 'chiusa' ? ' · chiusa' : ''}</small></div>
+  return `${VECCHIO ? backupBanner() : ''}<div class="cols">${accountCard()}${accessiCard()}<div class="card"><div class="ct h">CAMPAGNA <small>${esc(c.nome)}${c.stato === 'chiusa' ? ' · chiusa' : ''}</small></div>
       ${prodRows}
       <button class="btn block" data-act="cEdit" data-id="${c.id}">Modifica prodotti, prezzi e magazzino</button>
       <button class="btn block" data-act="view" data-v="camps">Tutte le campagne · nuova campagna</button>
       <p class="muted">L'importo di ogni vendita si calcola da solo (quantità × prezzo), ma puoi cambiarlo a mano nella singola vendita.</p></div>
     <div class="card"><div class="ct h">BACKUP</div>
-      <p class="muted">I dati sono salvati solo su questo iPhone. Fai un backup ogni tanto e salvalo in <b>File → iCloud Drive</b>: se cambi o perdi il telefono, li recuperi con «Importa backup». Il backup contiene tutte le campagne.</p>
+      <p class="muted">${CLOUD ? 'I dati sono salvati online e copiati su ogni dispositivo collegato. Il backup è una copia in più, da tenere in <b>File → iCloud Drive</b>. «Importa backup» <b>sostituisce i dati online per tutti</b>.' : 'I dati sono salvati solo su questo dispositivo. Fai un backup ogni tanto e salvalo in <b>File → iCloud Drive</b>: se cambi o perdi il telefono, li recuperi con «Importa backup».'} Il backup contiene tutte le campagne.</p>
       <p class="muted">Ultimo backup: <b>${S.lastBackup ? dmy(S.lastBackup) : 'mai'}</b> · ${S.campagne.length} ${S.campagne.length === 1 ? 'campagna' : 'campagne'} · ${tutteRighe().length} righe</p>
       <button class="btn primary block" data-act="backup">Fai il backup</button>
       <label class="btn block" for="imp">Importa backup</label>
@@ -447,8 +484,8 @@ function vMore() {
       <li><b>Conto vendita</b>: segna quanti pezzi affidi al venditore; poi aggiorna venduti, resi e soldi versati.</li>
       <li><b>Chi consegna al venditore</b> e <b>venditore</b> possono essere la stessa persona.</li>
       <li>I nomi già usati compaiono come suggerimento mentre scrivi: sceglili per non creare doppioni.</li></ul></div>
-    <div class="card"><div class="ct h">ZONA PERICOLOSA</div>
-      <button class="btn danger block" data-act="wipe">Cancella tutti i dati</button></div>
+    ${!CLOUD || FB.admin ? `<div class="card"><div class="ct h">ZONA PERICOLOSA</div>
+      <button class="btn danger block" data-act="wipe">${CLOUD ? 'Cancella tutti i dati online (per tutti)' : 'Cancella tutti i dati'}</button></div>` : ''}</div>
     <p class="ver">Arca Vendite · versione ${VERSIONE}</p>`;
 }
 
@@ -529,7 +566,7 @@ function saveCamp() {
   }
 }
 function usaCampagna(id) {
-  S.attiva = id;
+  S.attiva = id; UIp.attiva = id; saveUIp();
   Object.assign(UI, { homeG: 'tutti', g: 'tutti', stato: 'tutti', venditore: null, q: '' });
 }
 
@@ -695,11 +732,13 @@ function choice(title, text, opts) {
 }
 let CHOICES = [];
 function modifica(id, fn, msg) {
-  const L = R(), i = L.findIndex(r => r.id === id); if (i < 0) return;
+  const cid = C().id, L = R(), i = L.findIndex(r => r.id === id); if (i < 0) return;
   const prima = clone(L[i]);
   fn(L[i]); save(); render();
-  toast(msg, () => { const j = L.findIndex(r => r.id === id); if (j >= 0) L[j] = prima; save(); render(); });
+  // i dati possono essere stati ricaricati dal database nel frattempo: si cerca di nuovo la riga
+  toast(msg, () => { const c = camp(cid); if (!c) return; const j = c.records.findIndex(r => r.id === id); if (j >= 0) c.records[j] = prima; save(); render(); });
 }
+const camp = id => S.campagne.find(c => c.id === id);
 function chi(r) { return r.acquirente || r.venditore || 'questa riga'; }
 function toggleCamp(id) {
   const c = S.campagne.find(x => x.id === id); if (!c) return;
@@ -744,9 +783,9 @@ const ACT = {
   step: el => { const k = el.dataset.k; F[k] = Math.max(0, (F[k] || 0) + (+el.dataset.d)); if (k === 'qta' && F.tipo === 'vendita' && F[k] < 1) F[k] = 1; renderForm(); },
   fdel: () => {
     if (!confirm('Eliminare questa riga?')) return;
-    const L = R(), id = F.id, i = L.findIndex(r => r.id === id), prima = clone(L[i]);
+    const cid = C().id, L = R(), id = F.id, i = L.findIndex(r => r.id === id), prima = clone(L[i]);
     L.splice(i, 1); save(); closeForm(); render();
-    toast('Riga eliminata', () => { L.splice(Math.min(i, L.length), 0, prima); save(); render(); });
+    toast('Riga eliminata', () => { const c = camp(cid); if (!c || c.records.some(r => r.id === id)) return; c.records.splice(Math.min(i, c.records.length), 0, prima); save(); render(); });
   },
   /* soldi ad Annalisa */
   vNew: () => openVers(null),
@@ -755,9 +794,9 @@ const ACT = {
   vSave: () => saveVers(),
   vDel: () => {
     if (!confirm('Eliminare questa consegna di soldi?')) return;
-    const L = C().versamenti, i = L.findIndex(x => x.id === FV.id); if (i < 0) return closeVers();
+    const cid = C().id, L = C().versamenti, i = L.findIndex(x => x.id === FV.id); if (i < 0) return closeVers();
     const prima = L[i]; L.splice(i, 1); save(); closeVers(); render();
-    toast('Consegna eliminata', () => { L.splice(Math.min(i, L.length), 0, prima); save(); render(); });
+    toast('Consegna eliminata', () => { const c = camp(cid); if (!c || c.versamenti.some(v => v.id === prima.id)) return; c.versamenti.splice(Math.min(i, c.versamenti.length), 0, prima); save(); render(); });
   },
   /* campagne */
   cNew: () => openCamp(null),
@@ -792,9 +831,24 @@ const ACT = {
   pinOff: () => { if (confirm('Togliere il PIN?')) { S.settings.pin = null; save(); render(); toast('PIN tolto'); } },
   pin: el => pinKey(el.dataset.k),
   wipe: () => {
-    if (!confirm('Cancellare TUTTI i dati (tutte le campagne) da questo iPhone? Fai prima un backup!')) return;
+    if (!confirm(CLOUD ? 'Cancellare TUTTI i dati online (tutte le campagne) per TUTTI i dispositivi? Fai prima un backup!' : 'Cancellare TUTTI i dati (tutte le campagne) da questo dispositivo? Fai prima un backup!')) return;
     if (prompt('Per confermare scrivi CANCELLA') !== 'CANCELLA') return;
-    S = clone(DEF); UI.view = 'home'; save(); render(); toast('Dati cancellati');
+    S = Object.assign(clone(DEF), { settings: S.settings, lastBackup: S.lastBackup }); UI.view = 'home'; save(); render(); toast('Dati cancellati');
+  },
+  /* accesso online */
+  login: () => login(),
+  logout: () => { if (confirm('Uscire dall\'account su questo dispositivo?')) { UI.view = 'home'; auth.signOut(); } },
+  syncInfo: () => toast(syncTxt()[1]),
+  accAdd: () => {
+    const e = ($('#accNew').value || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return alert('Scrivi un indirizzo email valido (quello dell\'account Google).');
+    if (FB.utenti.includes(e)) return toast('Questo account è già autorizzato');
+    salvaAccessi([...FB.utenti, e], `Aggiunto ${e} ✓`);
+  },
+  accDel: el => {
+    const e = el.dataset.v;
+    if (!confirm(`Togliere l'accesso a ${e}? Non vedrà più i dati.`)) return;
+    salvaAccessi(FB.utenti.filter(x => x !== e), `Accesso tolto a ${e}`);
   }
 };
 
@@ -804,6 +858,7 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('keydown', e => {
   if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('.rec')) { e.preventDefault(); openForm(e.target.dataset.id); }
+  if (e.key === 'Escape' && $('#layer').innerHTML) { if (F) closeForm(); else if (FC) closeCamp(); else if (FV) closeVers(); else $('#layer').innerHTML = ''; }
 });
 document.addEventListener('input', e => {
   const t = e.target;
@@ -834,7 +889,7 @@ async function condividi(nome, testo, mime) {
 async function doBackup() {
   const copia = clone(S); copia.esportato = new Date().toISOString(); delete copia.settings.pin;
   const ok = await condividi(`arca-vendite-backup-${oggi()}.json`, JSON.stringify(copia, null, 1), 'application/json');
-  if (ok) { S.lastBackup = new Date().toISOString(); localStorage.setItem(KEY, JSON.stringify(S)); render(); toast('Backup pronto: salvalo in iCloud Drive'); }
+  if (ok) { S.lastBackup = new Date().toISOString(); persistLocal(); render(); toast('Backup pronto: salvalo in iCloud Drive'); }
 }
 function importa(file) {
   const fr = new FileReader();
@@ -844,11 +899,12 @@ function importa(file) {
       if (!raw || !(Array.isArray(raw.campagne) || Array.isArray(raw.records))) throw new Error('formato non riconosciuto');
       const d = fix(raw), n = d.campagne.reduce((a, c) => a + c.records.length, 0);
       const desc = d.campagne.map(c => `• ${c.nome} (${c.records.length} righe)`).join('\n');
-      const ora = S.campagne.length ? `\n\nSostituisco i dati attuali (${S.campagne.length} campagne, ${tutteRighe().length} righe)?` : '\n\nImporto?';
+      const dove = CLOUD ? ' online, per TUTTI i dispositivi' : '';
+      const ora = S.campagne.length ? `\n\nSostituisco i dati attuali${dove} (${S.campagne.length} campagne, ${tutteRighe().length} righe)?` : `\n\nImporto${dove}?`;
       if (!confirm(`Il file contiene:\n${desc}${ora}`)) return;
-      const pin = S.settings.pin;
+      const pin = S.settings.pin, lb = S.lastBackup;
       S = d; S.settings.pin = pin;
-      save(); S.lastBackup = S.lastChange; localStorage.setItem(KEY, JSON.stringify(S));
+      save(); S.lastBackup = CLOUD ? lb : S.lastChange; persistLocal();
       usaCampagna(S.attiva); UI.view = 'home'; render(); toast(`Importate ${n} righe ✓`);
     } catch (e) { alert('Non riesco a leggere il file: ' + e.message); }
   };
@@ -911,8 +967,202 @@ document.addEventListener('visibilitychange', () => {
   else if (S.settings.pin && !F && !FC && !FV && nascostaDa && Date.now() - nascostaDa > 120000) { $('#layer').innerHTML = ''; UI.locked = true; render(); }
 });
 
+/* ---------- Database online (Firebase) ----------
+   Struttura: config/accessi {admin, utenti[]} · campagne/{id} {nome, stato, prodotti…}
+              campagne/{id}/righe/{id} (una vendita) · campagne/{id}/versamenti/{id} (soldi ad Annalisa)
+   Il resto dell'app lavora sull'oggetto S come prima: save() confronta S con l'ultimo stato noto
+   e scrive online solo i documenti cambiati. Ogni modifica arrivata da un altro dispositivo ricostruisce S. */
+const FB = { stato: 'init', user: null, admin: false, adminEmail: '', utenti: [], pronti: 0, pend: 0, snapPend: false, err: '' };
+let auth = null, db = null, STOP = [], LAST = new Map(), RITARDO = false, rT = null;
+let REM = { camp: new Map(), righe: new Map(), vers: new Map() };
+/* JSON con le chiavi in ordine, per confrontare i documenti */
+const stab = o => JSON.stringify(o, (k, v) => v && typeof v === 'object' && !Array.isArray(v) ? Object.keys(v).sort().reduce((a, x) => (a[x] = v[x], a), {}) : v);
+
+function docsOf() {
+  const m = new Map();
+  for (const c of S.campagne) {
+    m.set('campagne/' + c.id, clone({ nome: c.nome, stato: c.stato, creata: c.creata || null, chiusa: c.chiusa || null, prodotti: c.prodotti || [], nextN: c.nextN || 1 }));
+    for (const r of c.records) m.set(`campagne/${c.id}/righe/${r.id}`, clone(r));
+    for (const v of c.versamenti || []) m.set(`campagne/${c.id}/versamenti/${v.id}`, clone(v));
+  }
+  return m;
+}
+function syncUp() {
+  if (!db || FB.stato !== 'ok' || FB.pronti < 3) return;
+  const D = docsOf(), ops = [], nuovo = new Map();
+  for (const [p, o] of D) { const j = stab(o); nuovo.set(p, j); if (LAST.get(p) !== j) ops.push([p, o]); }
+  for (const p of LAST.keys()) if (!D.has(p)) ops.push([p, null]);
+  LAST = nuovo;
+  for (let i = 0; i < ops.length; i += 400) {
+    const b = db.batch();
+    for (const [p, o] of ops.slice(i, i + 400)) { if (o) b.set(db.doc(p), o); else b.delete(db.doc(p)); }
+    FB.pend++; statoSync();
+    b.commit().catch(e => { console.error(e); alert('Il database online ha rifiutato una modifica (' + (e.code || e.message) + '). Ricarico i dati.'); })
+      .finally(() => { FB.pend--; statoSync(); });
+  }
+}
+function rebuild() {
+  const cs = [];
+  for (const [id, m] of REM.camp) cs.push({
+    id, nome: String(m.nome || 'Campagna'), stato: m.stato === 'chiusa' ? 'chiusa' : 'aperta', creata: m.creata || null, chiusa: m.chiusa || null,
+    prodotti: Array.isArray(m.prodotti) ? clone(m.prodotti) : [], nextN: m.nextN || 1, records: [], versamenti: []
+  });
+  const by = new Map(cs.map(c => [c.id, c]));
+  for (const [p, r] of REM.righe) { const c = by.get(p.split('/')[1]); if (c) c.records.push(clone(r)); }
+  for (const [p, v] of REM.vers) { const c = by.get(p.split('/')[1]); if (c) c.versamenti.push(clone(v)); }
+  for (const c of cs) c.nextN = Math.max(c.nextN, 1, ...c.records.map(r => (r.n || 0) + 1));
+  S.campagne = cs.sort((a, b) => String(a.creata || '').localeCompare(String(b.creata || '')));
+  if (!S.campagne.some(c => c.id === S.attiva)) S.attiva = (S.campagne.find(c => c.stato === 'aperta') || S.campagne[0] || {}).id || null;
+  LAST = new Map([...docsOf()].map(([p, o]) => [p, stab(o)]));
+}
+/* Ridisegna dopo un aggiornamento, senza disturbare chi sta scrivendo in un campo */
+function aggiorna() {
+  clearTimeout(rT);
+  rT = setTimeout(() => {
+    const a = document.activeElement;
+    if (a && a.closest && a.closest('#app') && /^(INPUT|TEXTAREA)$/.test(a.tagName)) {
+      if (a.id === 'q') { const l = $('#lista'); if (l) l.innerHTML = listaHTML(); }
+      RITARDO = true; statoSync(); return;
+    }
+    render();
+  }, 60);
+}
+document.addEventListener('focusout', () => { if (RITARDO) { RITARDO = false; setTimeout(aggiorna, 400); } });
+
+function syncTxt() {
+  if (!navigator.onLine) return ['off', 'Sei offline: le modifiche restano sul telefono e vengono inviate appena torna la connessione.'];
+  if (FB.pend || FB.snapPend) return ['wait', 'Sto inviando le ultime modifiche al database online…'];
+  return ['ok', 'Tutto salvato online.'];
+}
+function statoSync() {
+  const el = $('#sync'); if (!el) return;
+  const [c] = syncTxt();
+  el.className = 'sync ' + c;
+  el.textContent = c === 'ok' ? '● Online' : c === 'wait' ? '⟳ Invio…' : '● Offline';
+}
+function msgErr(e) {
+  const c = (e && e.code) || '';
+  if (/network-request-failed|unavailable/.test(c)) return 'Serve la connessione a internet per accedere.';
+  if (/unauthorized-domain/.test(c)) return 'Questo indirizzo non è autorizzato in Firebase (Authentication → Domini autorizzati).';
+  if (/popup-closed-by-user|cancelled-popup-request/.test(c)) return '';
+  return 'Accesso non riuscito (' + (c || (e && e.message) || 'errore') + ').';
+}
+function login() {
+  FB.err = '';
+  const p = new firebase.auth.GoogleAuthProvider();
+  p.setCustomParameters({ prompt: 'select_account' });
+  const standalone = navigator.standalone || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+  if (standalone) { auth.signInWithRedirect(p); return; }
+  auth.signInWithPopup(p).catch(e => {
+    if (/popup-blocked|operation-not-supported/.test(e.code)) return auth.signInWithRedirect(p);
+    FB.err = msgErr(e); render();
+  });
+}
+function stopListeners() {
+  STOP.forEach(f => { try { f(); } catch (e) { } }); STOP = [];
+  REM = { camp: new Map(), righe: new Map(), vers: new Map() }; LAST = new Map();
+  S.campagne = []; FB.pronti = 0; FB.snapPend = false; FB.admin = false; FB.utenti = [];
+}
+function nega(e) {
+  console.warn(e);
+  stopListeners();
+  if (e && e.code && e.code !== 'permission-denied') { FB.stato = 'errore'; FB.err = 'Non riesco a collegarmi al database (' + e.code + '). Controlla la connessione e riapri l\'app.'; }
+  else FB.stato = 'negato';
+  render();
+}
+function ascoltaAccessi() {
+  const email = (FB.user.email || '').toLowerCase(), ref = db.doc('config/accessi');
+  STOP.push(ref.onSnapshot(snap => {
+    if (!snap.exists) {
+      if (snap.metadata.fromCache) return;                                   // aspetta la risposta del server
+      ref.set({ admin: email, utenti: [email] }).catch(e => nega(e));        // riesce solo all'amministratore (regole)
+      return;
+    }
+    const d = snap.data();
+    FB.adminEmail = d.admin || ''; FB.admin = FB.adminEmail === email; FB.utenti = Array.isArray(d.utenti) ? d.utenti : [];
+    if (FB.stato !== 'ok') { FB.stato = 'ok'; ascoltaDati(); }
+    aggiorna();
+  }, e => nega(e)));
+}
+function ascoltaDati() {
+  const visti = new Set(), pend = {};
+  const on = (q, k, fn) => STOP.push(q.onSnapshot({ includeMetadataChanges: true }, s => {
+    fn(s); pend[k] = s.metadata.hasPendingWrites; FB.snapPend = Object.values(pend).some(Boolean);
+    visti.add(k); FB.pronti = visti.size;
+    if (FB.pronti === 3) { rebuild(); aggiorna(); } else render();
+  }, e => nega(e)));
+  on(db.collection('campagne'), 'c', s => { REM.camp = new Map(s.docs.map(d => [d.id, d.data()])); });
+  on(db.collectionGroup('righe'), 'r', s => { REM.righe = new Map(s.docs.map(d => [d.ref.path, d.data()])); });
+  on(db.collectionGroup('versamenti'), 'v', s => { REM.vers = new Map(s.docs.map(d => [d.ref.path, d.data()])); });
+}
+function salvaAccessi(utenti, msg) {
+  db.doc('config/accessi').set({ admin: FB.adminEmail, utenti: [...new Set(utenti)] })
+    .then(() => toast(msg)).catch(e => alert('Non riesco a salvare gli accessi (' + (e.code || e.message) + ').'));
+}
+function vAccesso() {
+  const u = FB.user;
+  if (FB.stato === 'init' || FB.stato === 'attesa') return `<div class="card"><p class="muted">Collegamento al database…</p>${FB.stato === 'attesa' && !navigator.onLine ? '<p class="muted">Al primo accesso su questo dispositivo serve la connessione a internet.</p>' : ''}</div>`;
+  if (FB.stato === 'login') return `<div class="card"><div class="ct h">ACCEDI</div>
+      <p class="muted">Le vendite sono salvate online e si vedono da tutti i dispositivi autorizzati. Entra con il tuo account Google: serve solo la prima volta su ogni dispositivo.</p>
+      ${FB.err ? `<p class="errbox">${esc(FB.err)}</p>` : ''}
+      <button class="btn primary block" data-act="login">Accedi con Google</button></div>`;
+  if (FB.stato === 'negato') return `<div class="card"><div class="ct h">ACCESSO NON AUTORIZZATO</div>
+      <p class="muted">L'account <b>${esc(u && u.email)}</b> non è tra quelli autorizzati. Chiedi all'amministratore di aggiungerlo in <b>Altro → Accessi</b>, poi riapri l'app.</p>
+      <button class="btn block" data-act="logout">Entra con un altro account</button></div>`;
+  if (FB.stato === 'errore') return `<div class="card"><div class="ct h">NESSUN COLLEGAMENTO</div><p class="errbox">${esc(FB.err)}</p>
+      <button class="btn block" data-act="logout">Esci</button></div>`;
+  return `<div class="card"><p class="muted">Carico le vendite…</p></div>`;
+}
+function accountCard() {
+  if (!CLOUD || !FB.user) return '';
+  return `<div class="card"><div class="ct h">ACCOUNT</div>
+    <div class="rowbtn" style="cursor:default"><span>${esc(FB.user.email)}${FB.admin ? '<br><span class="muted">amministratore</span>' : ''}</span><button class="btn small" data-act="logout">Esci</button></div>
+    <p class="muted">${esc(syncTxt()[1])}</p></div>`;
+}
+function accessiCard() {
+  if (!CLOUD || !FB.admin) return '';
+  const rows = FB.utenti.map(e => `<div class="rowbtn" style="cursor:default"><span>${esc(e)}${e === FB.adminEmail ? '<br><span class="muted">amministratore</span>' : ''}</span>${e === FB.adminEmail ? '' : `<button class="btn small danger" data-act="accDel" data-v="${esc(e)}">Togli</button>`}</div>`).join('');
+  return `<div class="card"><div class="ct h">ACCESSI <small>solo tu vedi questa sezione</small></div>${rows}
+    <label class="f"><span>Aggiungi un account Google</span><input id="accNew" type="email" inputmode="email" autocomplete="off" autocapitalize="none" placeholder="nome@gmail.com"></label>
+    <button class="btn block" data-act="accAdd">Aggiungi</button>
+    <p class="muted">La persona apre l'app e tocca «Accedi con Google» con quell'account. Se togli un account, perde subito l'accesso ai dati.</p></div>`;
+}
+function initCloud() {
+  firebase.initializeApp(FBCONF);
+  auth = firebase.auth(); db = firebase.firestore();
+  db.enablePersistence({ synchronizeTabs: true }).catch(e => console.warn('copia offline non disponibile:', e.code));
+  auth.getRedirectResult().catch(e => { FB.err = msgErr(e); render(); });
+  auth.onAuthStateChanged(u => {
+    stopListeners();
+    FB.user = u;
+    if (!u) { FB.stato = 'login'; render(); return; }
+    FB.stato = 'attesa'; FB.err = ''; render();
+    ascoltaAccessi();
+  });
+  addEventListener('online', () => { statoSync(); if (FB.stato === 'attesa') render(); });
+  addEventListener('offline', statoSync);
+}
+
 /* ---------- Avvio ---------- */
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { });
-if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => { });
-if (S.campagne.length && localStorage.getItem(KEY) && !JSON.parse(localStorage.getItem(KEY)).campagne) save(); // salva subito nel nuovo formato
+// Aggiornamento automatico: a ogni apertura controlla se c'è una versione nuova; quando è pronta ricarica la pagina
+// (subito, oppure appena chiudi il modulo che stai compilando, così non perdi nulla).
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  const giaInstallata = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => { }); });
+  }).catch(() => { });
+  let inArrivo = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!giaInstallata || inArrivo) return;
+    inArrivo = true;
+    const prova = () => {
+      const libero = !F && !FC && !FV && !$('#layer').innerHTML && !(document.activeElement && document.activeElement.matches('input,textarea'));
+      if (libero) location.reload(); else setTimeout(prova, 1500);
+    };
+    prova();
+  });
+}
+if (CLOUD) initCloud();
+else if (S.campagne.length && localStorage.getItem(KEY) && !JSON.parse(localStorage.getItem(KEY)).campagne) save(); // salva subito nel nuovo formato
 render();

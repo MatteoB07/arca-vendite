@@ -1,4 +1,8 @@
 ﻿*.json
 !manifest.webmanifest
+!firebase.json
+firestore.rules
+.firebase/
+*.log
 .DS_Store
 Thumbs.db
